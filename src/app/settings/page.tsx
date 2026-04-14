@@ -54,7 +54,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="label">Email address</label>
-              <input className="input" value={form.email} disabled className="input opacity-60 cursor-not-allowed" />
+             <input className="input opacity-60 cursor-not-allowed" value={form.email} disabled />
               <p className="text-xs text-gray-400 mt-1">Email cannot be changed</p>
             </div>
             <button onClick={handleSaveProfile} disabled={loading} className="btn btn-primary btn-sm">
