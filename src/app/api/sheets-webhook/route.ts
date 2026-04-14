@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 
 // Called by Google Apps Script when a new row is added to a connected sheet
 export async function POST(request: NextRequest) {
-  const supabase = createServiceClient()
+  const supabase = await createServiceClient()
 
   const body = await request.json()
   const { project_id, secret, row } = body
