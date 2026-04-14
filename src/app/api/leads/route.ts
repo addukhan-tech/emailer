@@ -54,13 +54,17 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase.from('leads').insert(leads).select()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  if (leads.length > 0 && leads[0].project_id) {
+ if (leads.length > 0 && (leads[0] as Record<string, unknown>).project_id) {
+    const pid = (leads[0] as Record<string, unknown>).project_id as string
+    const { count } = await supabase
+      .from('leads')
+      .select('*', { count: 'exact', head: true })
+      .eq('project_id', pid)
     await supabase
       .from('projects')
-      .update({ total_leads: supabase.rpc('get_lead_count', { p_id: leads[0].project_id }) })
-      .eq('id', leads[0].project_id)
+      .update({ total_leads: count ?? 0 })
+      .eq('id', pid)
   }
-
   return NextResponse.json({ inserted: data?.length ?? 0 }, { status: 201 })
 }
 
