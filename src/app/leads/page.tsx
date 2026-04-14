@@ -94,7 +94,7 @@ export default function LeadsPage() {
                   <td className="td">
                     <Link href={`/projects/${lead.project_id}/leads`}
                       className="badge badge-gray hover:badge-blue transition-colors">
-                      {(lead as Record<string, unknown> & { projects?: { name: string } }).projects?.name ?? '—'}
+                      {(lead as unknown as { projects?: { name: string } }).projects?.name ?? '—'}
                     </Link>
                   </td>
                   <td className="td">
