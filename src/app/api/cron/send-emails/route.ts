@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     for (const project of projects as Project[]) {
       // Check if it's time to send for this project
-      if (!shouldSendToday(project)) continue
+      // Time check handled by cron schedule, always process active projects
 
       // Check daily limit
       const today = new Date().toISOString().split('T')[0]

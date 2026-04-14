@@ -89,7 +89,6 @@ export function getFollowupDelay(project: Project, stage: number): number | null
   }
   return days[stage] ?? null
 }
-
 export function shouldSendToday(project: Project): boolean {
   const now = new Date()
   const [hours, minutes] = project.schedule_time.split(':').map(Number)
