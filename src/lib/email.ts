@@ -25,9 +25,11 @@ export function createTransporter(project: Project) {
       pass: project.smtp_pass,
     },
     tls: { rejectUnauthorized: false },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   })
 }
-
 export async function sendEmail({
   project,
   lead,
