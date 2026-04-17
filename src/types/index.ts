@@ -1,7 +1,7 @@
 export type UserRole = 'admin' | 'member'
 export type ProjectStatus = 'active' | 'paused' | 'stopped'
 export type ScheduleType = 'daily' | 'weekly' | 'monthly'
-export type LeadEmailStatus = 'pending' | 'sent' | 'failed' | 'unsubscribed'
+export type LeadEmailStatus = 'pending' | 'sent' | 'failed' | 'unsubscribed' | 'no_email'
 export type EmailLogType = 'initial' | 'followup_1' | 'followup_2' | 'followup_3' | 'followup_4'
 export type LeadSource = 'manual' | 'csv' | 'sheets'
 
