@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { sendEmail, getFollowupContent } from '@/lib/email'
+import { sendEmail, getFollowupContent, shouldSendToday } from '@/lib/email'
 import { Project, Lead } from '@/types'
 
 export const runtime = 'nodejs'
@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
     if (!projects?.length) return NextResponse.json({ message: 'No active projects' })
 
     for (const project of projects as Project[]) {
+      if (!shouldSendToday(project)) continue
       const today = new Date().toISOString().split('T')[0]
       const { data: tracker } = await supabase
         .from('daily_send_tracker').select('emails_sent')
