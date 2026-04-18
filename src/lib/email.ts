@@ -78,24 +78,28 @@ export function getFollowupDelay(project: Project, stage: number): number | null
 
 export function shouldSendToday(project: Project): boolean {
   const now = new Date()
+
+  // Pakistan time
+  const local = new Date(
+    now.toLocaleString("en-US", { timeZone: "Asia/Karachi" })
+  )
+
   const [hours, minutes] = project.schedule_time.split(':').map(Number)
-  
-  // Check if current time matches schedule (within 5 minute window)
-  const currentHour = now.getHours()
-  const currentMinute = now.getMinutes()
-  
-  if (Math.abs(currentHour - hours) > 0) return false
-  if (Math.abs(currentMinute - minutes) > 5) return false
-  
-  // Check day of week for weekly schedule
+
+  const nowMinutes = local.getHours() * 60 + local.getMinutes()
+  const targetMinutes = hours * 60 + minutes
+  const diff = Math.abs(nowMinutes - targetMinutes)
+
+  // 10 minute window
+  if (diff > 10) return false
+
   if (project.schedule_type === 'weekly') {
-    return now.getDay() === (project.schedule_day_of_week ?? 1)
+    return local.getDay() === (project.schedule_day_of_week ?? 1)
   }
-  
-  // Check day of month for monthly schedule
+
   if (project.schedule_type === 'monthly') {
-    return now.getDate() === (project.schedule_day_of_month ?? 1)
+    return local.getDate() === (project.schedule_day_of_month ?? 1)
   }
-  
+
   return true
 }
