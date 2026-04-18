@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer'
 import { Project, Lead } from '@/types'
-
+ 
 export function renderTemplate(template: string, lead: Lead): string {
   let result = template
   const firstName = lead.name ? lead.name.trim().split(' ')[0] : ''
@@ -16,7 +16,7 @@ export function renderTemplate(template: string, lead: Lead): string {
   }
   return result
 }
-
+ 
 export function createTransporter(project: Project) {
   return nodemailer.createTransport({
     host: project.smtp_host,
@@ -29,11 +29,11 @@ export function createTransporter(project: Project) {
     socketTimeout: 15000,
   })
 }
-
+ 
 export function getTrackingPixel(leadToken: string, appUrl: string): string {
   return `<img src="${appUrl}/api/track/${leadToken}" width="1" height="1" style="display:none;" alt="" />`
 }
-
+ 
 export async function sendEmail({
   project, lead, subject, body, appUrl,
 }: {
@@ -64,42 +64,43 @@ export async function sendEmail({
     return { success: false, error: message }
   }
 }
-
+ 
 export function getFollowupContent(project: Project, stage: number) {
   const subjects: Record<number, string | null> = { 1: project.followup_subject_1, 2: project.followup_subject_2, 3: project.followup_subject_3, 4: project.followup_subject_4 }
   const bodies: Record<number, string | null> = { 1: project.followup_body_1, 2: project.followup_body_2, 3: project.followup_body_3, 4: project.followup_body_4 }
   return { subject: subjects[stage] || project.email_subject, body: bodies[stage] || project.email_body }
 }
-
+ 
 export function getFollowupDelay(project: Project, stage: number): number | null {
   const days: Record<number, number | null> = { 1: project.followup_day_1, 2: project.followup_day_2, 3: project.followup_day_3, 4: project.followup_day_4 }
   return days[stage] ?? null
 }
-
+ 
 export function shouldSendToday(project: Project): boolean {
   const now = new Date()
-
+ 
   // Pakistan time
   const local = new Date(
     now.toLocaleString("en-US", { timeZone: "Asia/Karachi" })
   )
-
+ 
   const [hours, minutes] = project.schedule_time.split(':').map(Number)
-
+ 
   const nowMinutes = local.getHours() * 60 + local.getMinutes()
   const targetMinutes = hours * 60 + minutes
   const diff = Math.abs(nowMinutes - targetMinutes)
-
-  // 10 minute window
-  if (diff > 10) return false
-
+ 
+  // 5 minute window — ensure your cron runs every 5 min or less
+  if (diff > 5) return false
+ 
   if (project.schedule_type === 'weekly') {
     return local.getDay() === (project.schedule_day_of_week ?? 1)
   }
-
+ 
   if (project.schedule_type === 'monthly') {
     return local.getDate() === (project.schedule_day_of_month ?? 1)
   }
-
+ 
   return true
 }
+ 
