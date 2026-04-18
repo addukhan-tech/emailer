@@ -24,13 +24,27 @@ export async function GET(request: NextRequest) {
     if (!projects?.length) return NextResponse.json({ message: 'No active projects' })
 
     for (const project of projects as Project[]) {
-      if (!shouldSendToday(project)) continue
       const today = new Date().toISOString().split('T')[0]
-      const { data: tracker } = await supabase
-        .from('daily_send_tracker').select('emails_sent')
-        .eq('project_id', project.id).eq('date', today).single()
 
-      const sentToday = tracker?.emails_sent ?? 0
+      // Check if we already sent today for this project
+      const { data: tracker } = await supabase
+        .from('daily_send_tracker')
+        .select('emails_sent')
+        .eq('project_id', project.id)
+        .eq('date', today)
+        .single()
+
+      // If we already sent today, skip this project
+      if (tracker && tracker.emails_sent > 0) {
+        results.push({ project: project.name, skipped: 'already sent today' })
+        continue
+      }
+
+      // Check if it's time to send (within 5 min of scheduled time)
+      if (!shouldSendToday(project)) continue
+     
+
+     const sentToday = 0
       if (project.daily_limit > 0 && sentToday >= project.daily_limit) {
         results.push({ project: project.name, skipped: 'daily limit reached' })
         continue
