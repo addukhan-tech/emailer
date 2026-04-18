@@ -88,40 +88,80 @@ export default function ProjectLeadsPage() {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
-        const rows = results.data as Record<string, string>[]
-        const leads = rows.map(row => {
-          // Find email column
-          const emailKey = Object.keys(row).find(k =>
-            ['email', 'Email', 'EMAIL', 'email address', 'Email Address'].includes(k)
-          )
-          const email = emailKey ? row[emailKey]?.trim() : ''
+        try {
+          const rows = results.data as Record<string, string>[]
+          console.log('CSV parsed, rows:', rows.length)
 
-          // Find name column - first name or full name
-          const nameKey = Object.keys(row).find(k =>
-            ['name', 'Name', 'first name', 'First Name', 'firstname', 'FirstName', 'full name', 'Full Name'].includes(k)
-          )
-          const name = nameKey ? row[nameKey]?.trim() : null
+          const leads = rows.map(row => {
+            // Find email column - case insensitive
+            const emailKey = Object.keys(row).find(k =>
+              k.toLowerCase().includes('email')
+            )
+            const email = emailKey ? row[emailKey]?.trim() : ''
 
-          // If no email, mark as no_email
-          if (!email) {
-            return { project_id: projectId, email: '', name, data: {}, source: 'csv', email_status: 'no_email' }
+            // Find name column - first name or full name
+            const nameKey = Object.keys(row).find(k =>
+              k.toLowerCase().includes('name') || k.toLowerCase().includes('first')
+            )
+            const name = nameKey ? row[nameKey]?.trim() : null
+
+            // If no email, mark as no_email
+            if (!email) {
+              return {
+                project_id: projectId,
+                email: '',
+                name: name || '',
+                data: {},
+                source: 'csv',
+                email_status: 'no_email'
+              }
+            }
+
+            return {
+              project_id: projectId,
+              email: email,
+              name: name || '',
+              data: {},
+              source: 'csv'
+            }
+          })
+
+          console.log('Leads prepared:', leads.length)
+
+          const res = await fetch('/api/leads', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(leads),
+          })
+
+          if (!res.ok) {
+            const err = await res.json()
+            console.error('Import failed:', err)
+            alert('Import failed: ' + (err.error || 'Unknown error'))
+            setImporting(false)
+            return
           }
 
-          return { project_id: projectId, email, name, data: {}, source: 'csv' }
-        })
-
-        await fetch('/api/leads', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(leads),
-        })
-        setImporting(false)
-        setShowImportModal(false)
-        fetchLeads()
+          const result = await res.json()
+          console.log('Import successful:', result)
+          alert(`Successfully imported ${result.inserted || leads.length} leads!`)
+          
+          setImporting(false)
+          setShowImportModal(false)
+          fetchLeads()
+        } catch (err) {
+          console.error('CSV import error:', err)
+          alert('Import failed: ' + (err instanceof Error ? err.message : 'Unknown error'))
+          setImporting(false)
+        }
       },
+      error: (err: Error) => {
+        console.error('CSV parse error:', err)
+        alert('Failed to parse CSV: ' + err.message)
+        setImporting(false)
+      }
     })
   }
-
   const statusIcon = (lead: Lead) => {
     if (lead.email_status === 'sent') return <CheckCircle2 className="w-3.5 h-3.5 text-brand-500" />
     if (lead.email_status === 'failed') return <XCircle className="w-3.5 h-3.5 text-red-400" />
