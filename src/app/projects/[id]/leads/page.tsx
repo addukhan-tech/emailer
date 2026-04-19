@@ -122,7 +122,8 @@ export default function ProjectLeadsPage() {
               email: email,
               name: name || '',
               data: {},
-              source: 'csv'
+              source: 'csv',
+              email_status: 'pending'
             }
           })
 
