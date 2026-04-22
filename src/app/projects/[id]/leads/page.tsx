@@ -1,5 +1,5 @@
 'use client'
-
+ 
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
@@ -8,15 +8,15 @@ import {
   CheckCircle2, Clock, XCircle, Loader2, Sheet, Eye, MessageSquare
 } from 'lucide-react'
 import Papa from 'papaparse'
-import { Lead, Project } from '@/types'
+import { Lead, Project, CustomField } from '@/types'
 import { formatDate, formatDateTime, cn } from '@/lib/utils'
-
+ 
 type Tab = 'all' | 'pending' | 'sent' | 'failed' | 'followup' | 'replied' | 'opened'
-
+ 
 export default function ProjectLeadsPage() {
   const params = useParams()
   const projectId = params.id as string
-
+ 
   const [project, setProject] = useState<Project | null>(null)
   const [leads, setLeads] = useState<Lead[]>([])
   const [total, setTotal] = useState(0)
@@ -28,17 +28,17 @@ export default function ProjectLeadsPage() {
   const [showImportModal, setShowImportModal] = useState(false)
   const [importing, setImporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
-
+ 
   useEffect(() => {
     fetchProject()
     fetchLeads()
   }, [tab])
-
+ 
   const fetchProject = async () => {
     const res = await fetch(`/api/projects/${projectId}`)
     if (res.ok) setProject(await res.json())
   }
-
+ 
   const fetchLeads = async () => {
     setLoading(true)
     const p = new URLSearchParams({ project_id: projectId, limit: '100' })
@@ -58,7 +58,7 @@ export default function ProjectLeadsPage() {
     }
     setLoading(false)
   }
-
+ 
   const toggleReplied = async (lead: Lead & { replied?: boolean }) => {
     const newVal = !lead.replied
     await fetch(`/api/leads/${lead.id}`, {
@@ -68,7 +68,7 @@ export default function ProjectLeadsPage() {
     })
     fetchLeads()
   }
-
+ 
   const handleDeleteSelected = async () => {
     if (!selected.size || !confirm(`Delete ${selected.size} lead(s)?`)) return
     await fetch('/api/leads', {
@@ -79,11 +79,15 @@ export default function ProjectLeadsPage() {
     setSelected(new Set())
     fetchLeads()
   }
-
+ 
   const handleCSVImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setImporting(true)
+ 
+    // Get custom fields from project (already fetched)
+    const customFields: CustomField[] = project?.custom_fields ?? []
+ 
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
@@ -91,50 +95,63 @@ export default function ProjectLeadsPage() {
         try {
           const rows = results.data as Record<string, string>[]
           console.log('CSV parsed, rows:', rows.length)
-
+ 
           const leads = rows.map(row => {
-            // Find email column - case insensitive
-            const emailKey = Object.keys(row).find(k =>
-              k.toLowerCase().includes('email')
-            )
+            const rowKeys = Object.keys(row)
+ 
+            // Find email column — case insensitive
+            const emailKey = rowKeys.find(k => k.toLowerCase().includes('email'))
             const email = emailKey ? row[emailKey]?.trim() : ''
-
-            // Find name column - first name or full name
-            const nameKey = Object.keys(row).find(k =>
+ 
+            // Find name column — name or first name
+            const nameKey = rowKeys.find(k =>
               k.toLowerCase().includes('name') || k.toLowerCase().includes('first')
             )
             const name = nameKey ? row[nameKey]?.trim() : null
-
-            // If no email, mark as no_email
+ 
+            // Build data object from custom fields
+            // Tries to match CSV column to custom field key or label (case insensitive)
+            const data: Record<string, string> = {}
+            for (const field of customFields) {
+              // Match by key (e.g. "clinic_name") or label (e.g. "Clinic Name") — case insensitive
+              const matchedKey = rowKeys.find(k =>
+                k.toLowerCase().replace(/\s+/g, '_') === field.key ||
+                k.toLowerCase() === field.label.toLowerCase()
+              )
+              if (matchedKey && row[matchedKey]?.trim()) {
+                data[field.key] = row[matchedKey].trim()
+              }
+            }
+ 
             if (!email) {
               return {
                 project_id: projectId,
                 email: '',
                 name: name || '',
-                data: {},
+                data,
                 source: 'csv',
-                email_status: 'no_email'
+                email_status: 'no_email',
               }
             }
-
+ 
             return {
               project_id: projectId,
-              email: email,
+              email,
               name: name || '',
-              data: {},
+              data,
               source: 'csv',
-              email_status: 'pending'
+              email_status: 'pending',
             }
           })
-
+ 
           console.log('Leads prepared:', leads.length)
-
+ 
           const res = await fetch('/api/leads', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(leads),
           })
-
+ 
           if (!res.ok) {
             const err = await res.json()
             console.error('Import failed:', err)
@@ -142,13 +159,15 @@ export default function ProjectLeadsPage() {
             setImporting(false)
             return
           }
-
+ 
           const result = await res.json()
           console.log('Import successful:', result)
           alert(`Successfully imported ${result.inserted || leads.length} leads!`)
-          
+ 
           setImporting(false)
           setShowImportModal(false)
+          // Reset file input so same file can be re-imported if needed
+          if (fileRef.current) fileRef.current.value = ''
           fetchLeads()
         } catch (err) {
           console.error('CSV import error:', err)
@@ -163,13 +182,14 @@ export default function ProjectLeadsPage() {
       }
     })
   }
+ 
   const statusIcon = (lead: Lead) => {
     if (lead.email_status === 'sent') return <CheckCircle2 className="w-3.5 h-3.5 text-brand-500" />
     if (lead.email_status === 'failed') return <XCircle className="w-3.5 h-3.5 text-red-400" />
     if (lead.email_status === 'no_email') return <XCircle className="w-3.5 h-3.5 text-gray-400" />
     return <Clock className="w-3.5 h-3.5 text-amber-400" />
   }
-
+ 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'all', label: 'All' },
     { key: 'pending', label: 'Pending' },
@@ -179,7 +199,9 @@ export default function ProjectLeadsPage() {
     { key: 'followup', label: 'Follow-up' },
     { key: 'failed', label: 'Failed' },
   ]
-
+ 
+  const customFields: CustomField[] = project?.custom_fields ?? []
+ 
   return (
     <div className="p-6 max-w-7xl mx-auto fade-in">
       <div className="flex items-center justify-between mb-6">
@@ -200,7 +222,7 @@ export default function ProjectLeadsPage() {
           </button>
         </div>
       </div>
-
+ 
       {project && (
         <div className="card p-4 mb-5 flex items-center gap-6 flex-wrap">
           <div className="flex items-center gap-2">
@@ -223,7 +245,7 @@ export default function ProjectLeadsPage() {
           </div>
         </div>
       )}
-
+ 
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 flex-wrap">
           {tabs.map(t => (
@@ -249,7 +271,7 @@ export default function ProjectLeadsPage() {
           <button onClick={fetchLeads} className="btn btn-sm"><RefreshCw className="w-3.5 h-3.5" /></button>
         </div>
       </div>
-
+ 
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -262,6 +284,10 @@ export default function ProjectLeadsPage() {
                 </th>
                 <th className="th">Name</th>
                 <th className="th">Email</th>
+                {/* Dynamic custom field columns */}
+                {customFields.map(f => (
+                  <th key={f.key} className="th">{f.label}</th>
+                ))}
                 <th className="th">Added</th>
                 <th className="th">Source</th>
                 <th className="th" style={{ background: '#f0fdf8', color: '#15803d' }}>📌 Email Status</th>
@@ -273,11 +299,11 @@ export default function ProjectLeadsPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
-                <tr><td colSpan={10} className="td text-center py-12">
+                <tr><td colSpan={10 + customFields.length} className="td text-center py-12">
                   <Loader2 className="w-5 h-5 spin mx-auto text-gray-300" />
                 </td></tr>
               ) : leads.length === 0 ? (
-                <tr><td colSpan={10} className="td text-center py-12 text-gray-400 text-sm">
+                <tr><td colSpan={10 + customFields.length} className="td text-center py-12 text-gray-400 text-sm">
                   No leads found. Add leads manually or import a CSV.
                 </td></tr>
               ) : (leads as (Lead & { replied?: boolean; email_opened?: boolean; email_open_count?: number })[]).map(lead => (
@@ -293,6 +319,12 @@ export default function ProjectLeadsPage() {
                   </td>
                   <td className="td font-medium text-gray-800">{lead.name || '—'}</td>
                   <td className="td text-gray-500 text-xs">{lead.email || <span className="text-gray-300 italic">no email</span>}</td>
+                  {/* Dynamic custom field values */}
+                  {customFields.map(f => (
+                    <td key={f.key} className="td text-gray-500 text-xs">
+                      {lead.data?.[f.key] || <span className="text-gray-300">—</span>}
+                    </td>
+                  ))}
                   <td className="td text-gray-400 text-xs">{formatDate(lead.created_at)}</td>
                   <td className="td">
                     <span className="badge badge-gray capitalize">{lead.source}</span>
@@ -314,7 +346,7 @@ export default function ProjectLeadsPage() {
                   <td className="td text-xs" style={{ background: '#f0fdf8' }}>
                     {formatDateTime(lead.email_sent_at)}
                   </td>
-                  {/* Pinned Opened */}
+                  {/* Opened */}
                   <td className="td text-xs" style={{ background: '#f0fdf8' }}>
                     {lead.email_opened ? (
                       <div className="flex items-center gap-1">
@@ -325,7 +357,7 @@ export default function ProjectLeadsPage() {
                       <span className="text-gray-300">—</span>
                     )}
                   </td>
-                  {/* Pinned Replied - clickable toggle */}
+                  {/* Replied */}
                   <td className="td" style={{ background: '#f0fdf8' }}>
                     <button
                       onClick={() => toggleReplied(lead)}
@@ -353,16 +385,36 @@ export default function ProjectLeadsPage() {
           </table>
         </div>
       </div>
-
+ 
       {showAddModal && (
-        <AddLeadModal projectId={projectId} onClose={() => setShowAddModal(false)} onSaved={() => { setShowAddModal(false); fetchLeads() }} />
+        <AddLeadModal
+          projectId={projectId}
+          customFields={customFields}
+          onClose={() => setShowAddModal(false)}
+          onSaved={() => { setShowAddModal(false); fetchLeads() }}
+        />
       )}
-
+ 
       {showImportModal && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
           <div className="card p-6 w-full max-w-md">
             <h2 className="text-base font-semibold mb-2">Import Leads</h2>
-            <p className="text-xs text-gray-400 mb-4">Only <strong>name/first name</strong> and <strong>email</strong> columns are imported. Leads without email are marked as "No Email".</p>
+            <p className="text-xs text-gray-400 mb-1">
+              Imports <strong>name/first name</strong> and <strong>email</strong> columns automatically.
+            </p>
+            {customFields.length > 0 && (
+              <div className="mb-4 p-3 bg-brand-50 rounded-lg border border-brand-100">
+                <p className="text-xs text-brand-700 font-medium mb-1">Also imports these custom fields if found in CSV:</p>
+                <div className="flex flex-wrap gap-1">
+                  {customFields.map(f => (
+                    <span key={f.key} className="font-mono text-xs bg-white text-brand-600 px-2 py-0.5 rounded border border-brand-100">
+                      {f.label}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-brand-500 mt-1">Column names in CSV must match these labels.</p>
+              </div>
+            )}
             <div className="space-y-3">
               <button onClick={() => fileRef.current?.click()}
                 className="w-full flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:bg-gray-50 text-left">
@@ -371,22 +423,22 @@ export default function ProjectLeadsPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-800">Upload CSV file</p>
-                  <p className="text-xs text-gray-400">Imports name + email columns only</p>
+                  <p className="text-xs text-gray-400">Imports name + email + custom fields</p>
                 </div>
                 {importing && <Loader2 className="w-4 h-4 spin ml-auto text-gray-400" />}
               </button>
               <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCSVImport} />
-
+ 
               <button className="w-full flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:bg-gray-50 text-left">
                 <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
                   <Sheet className="w-4 h-4 text-blue-600" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-800">Import from Google Sheets</p>
-                  <p className="text-xs text-gray-400">Imports name + email columns only</p>
+                  <p className="text-xs text-gray-400">Imports name + email + custom fields</p>
                 </div>
               </button>
-
+ 
               <button className="w-full flex items-center gap-3 p-4 border border-dashed border-gray-200 rounded-xl hover:bg-gray-50 text-left">
                 <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center">
                   <RefreshCw className="w-4 h-4 text-amber-600" />
@@ -406,26 +458,36 @@ export default function ProjectLeadsPage() {
     </div>
   )
 }
-
-function AddLeadModal({ projectId, onClose, onSaved }: {
-  projectId: string; onClose: () => void; onSaved: () => void
+ 
+function AddLeadModal({ projectId, customFields, onClose, onSaved }: {
+  projectId: string
+  customFields: CustomField[]
+  onClose: () => void
+  onSaved: () => void
 }) {
   const [form, setForm] = useState({ email: '', name: '' })
+  const [customData, setCustomData] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
+ 
   const handleSave = async () => {
     setLoading(true)
     const status = form.email ? 'pending' : 'no_email'
     const res = await fetch('/api/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_id: projectId, email: form.email, name: form.name, data: {}, email_status: status }),
+      body: JSON.stringify({
+        project_id: projectId,
+        email: form.email,
+        name: form.name,
+        data: customData,
+        email_status: status,
+      }),
     })
     if (!res.ok) { const d = await res.json(); setError(d.error); setLoading(false); return }
     onSaved()
   }
-
+ 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
       <div className="card p-6 w-full max-w-md">
@@ -441,6 +503,18 @@ function AddLeadModal({ projectId, onClose, onSaved }: {
             <input className="input" type="email" placeholder="john@company.com"
               value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
           </div>
+          {/* Dynamic custom fields */}
+          {customFields.map(field => (
+            <div key={field.key}>
+              <label className="label">{field.label}</label>
+              <input
+                className="input"
+                placeholder={`Enter ${field.label.toLowerCase()}...`}
+                value={customData[field.key] ?? ''}
+                onChange={e => setCustomData(d => ({ ...d, [field.key]: e.target.value }))}
+              />
+            </div>
+          ))}
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
         <div className="flex justify-end gap-2 mt-5">
@@ -454,3 +528,4 @@ function AddLeadModal({ projectId, onClose, onSaved }: {
     </div>
   )
 }
+ 

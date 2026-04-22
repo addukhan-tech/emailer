@@ -4,7 +4,12 @@ export type ScheduleType = 'daily' | 'weekly' | 'monthly'
 export type LeadEmailStatus = 'pending' | 'sent' | 'failed' | 'unsubscribed' | 'no_email'
 export type EmailLogType = 'initial' | 'followup_1' | 'followup_2' | 'followup_3' | 'followup_4'
 export type LeadSource = 'manual' | 'csv' | 'sheets'
-
+ 
+export interface CustomField {
+  key: string       // e.g. "clinic_name" — used in {{clinic_name}}
+  label: string     // e.g. "Clinic Name" — shown in UI
+}
+ 
 export interface Profile {
   id: string
   email: string
@@ -12,7 +17,7 @@ export interface Profile {
   role: UserRole
   created_at: string
 }
-
+ 
 export interface Project {
   id: string
   user_id: string
@@ -54,10 +59,12 @@ export interface Project {
   sheets_email_column: string | null
   total_leads: number
   total_sent: number
+  // Custom personalization fields defined per project
+  custom_fields: CustomField[] | null
   created_at: string
   updated_at: string
 }
-
+ 
 export interface ProjectColumn {
   id: string
   project_id: string
@@ -67,7 +74,7 @@ export interface ProjectColumn {
   is_email_column: boolean
   created_at: string
 }
-
+ 
 export interface Lead {
   id: string
   project_id: string
@@ -87,7 +94,7 @@ export interface Lead {
   created_at: string
   updated_at: string
 }
-
+ 
 export interface EmailLog {
   id: string
   project_id: string
@@ -100,7 +107,7 @@ export interface EmailLog {
   error_message: string | null
   sent_at: string
 }
-
+ 
 export interface ProjectFormData {
   name: string
   description: string
@@ -133,4 +140,6 @@ export interface ProjectFormData {
   followup_body_3: string
   followup_subject_4: string
   followup_body_4: string
+  custom_fields: CustomField[]
 }
+ 
