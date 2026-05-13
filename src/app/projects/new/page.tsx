@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { ArrowLeft, Loader2, Plus, Minus, Eye, EyeOff } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { ArrowLeft, Loader2, Trash2, Eye, EyeOff, Plus, X, Tag, Minus } from 'lucide-react'
+import { Project, CustomField } from '@/types'
 
 const BATCH_OPTIONS = [
   { value: 1, label: '1 email at a time' },
@@ -17,150 +17,153 @@ const BATCH_OPTIONS = [
   { value: 0, label: 'All unsent leads at once' },
 ]
 
-const INTERVAL_OPTIONS = [1, 2, 3, 5, 10, 15, 30, 60]
-const FOLLOWUP_DAYS = [1, 2, 3, 4, 5]
+const FOLLOWUP_DAYS = [1, 2, 3, 4, 5, 7, 10, 14]
 
-const defaultForm = {
-  name: '', description: '',
-  from_email: '', from_name: '',
-  smtp_host: 'smtp.gmail.com', smtp_port: 587, smtp_user: '', smtp_pass: '', smtp_secure: false,
-  email_subject: '', email_body: '',
-  schedule_type: 'daily', schedule_time: '09:00',
-  schedule_day_of_week: 1, schedule_day_of_month: 1,
-  batch_size: 10, batch_interval_minutes: 5, daily_limit: 50,
-  followup_count: 0,
-  followup_day_1: 2, followup_day_2: 4, followup_day_3: 5, followup_day_4: 5,
-  followup_subject_1: '', followup_body_1: '',
-  followup_subject_2: '', followup_body_2: '',
-  followup_subject_3: '', followup_body_3: '',
-  followup_subject_4: '', followup_body_4: '',
+// Convert a label like "Clinic Name" → "clinic_name"
+function labelToKey(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
 }
 
-export default function NewProjectPage() {
+export default function ProjectSettingsPage() {
+  const params = useParams()
   const router = useRouter()
-  const supabase = createClient()
-  const [step, setStep] = useState(1)
-  const [loading, setLoading] = useState(false)
+  const projectId = params.id as string
+
+  const [project, setProject] = useState<Project | null>(null)
+  const [form, setForm] = useState<Partial<Project>>({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
   const [showPass, setShowPass] = useState(false)
-  const [form, setForm] = useState(defaultForm)
+
+  // Personalization fields state
+  const [newFieldLabel, setNewFieldLabel] = useState('')
+  const [fieldError, setFieldError] = useState('')
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}`)
+      .then(r => r.json())
+      .then(d => { setProject(d); setForm(d); setLoading(false) })
+  }, [projectId])
 
   const set = (key: string, value: unknown) => setForm(f => ({ ...f, [key]: value }))
 
-  const handleSubmit = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, user_id: user!.id }),
-      })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
-      const project = await res.json()
-      router.push(`/projects/${project.id}/leads`)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Something went wrong')
-      setLoading(false)
+  const customFields: CustomField[] = (form.custom_fields as CustomField[]) ?? []
+  const followupCount = (form.followup_count as number) ?? 0
+
+  const addField = () => {
+    setFieldError('')
+    const label = newFieldLabel.trim()
+    if (!label) { setFieldError('Enter a field name'); return }
+    const key = labelToKey(label)
+    if (!key) { setFieldError('Invalid name — use letters and spaces only'); return }
+    if (['name', 'email', 'first_name', 'full_name'].includes(key)) {
+      setFieldError(`"${key}" is a built-in field, choose a different name`)
+      return
     }
+    if (customFields.some(f => f.key === key)) {
+      setFieldError('A field with this name already exists')
+      return
+    }
+    set('custom_fields', [...customFields, { key, label }])
+    setNewFieldLabel('')
   }
 
-  const steps = ['Basic Info', 'SMTP & Email', 'Schedule', 'Follow-ups']
+  const removeField = (key: string) => {
+    set('custom_fields', customFields.filter(f => f.key !== key))
+  }
+
+  const handleSave = async () => {
+    setSaving(true); setError(''); setSaved(false)
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form),
+    })
+    if (!res.ok) { const d = await res.json(); setError(d.error) }
+    else { setSaved(true); setTimeout(() => setSaved(false), 3000) }
+    setSaving(false)
+  }
+
+  const handleDelete = async () => {
+    if (!confirm('Delete this project and all its leads? This cannot be undone.')) return
+    setDeleting(true)
+    await fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
+    router.push('/projects')
+  }
+
+  if (loading) return (
+    <div className="p-6 flex items-center justify-center h-64">
+      <Loader2 className="w-5 h-5 spin text-gray-300" />
+    </div>
+  )
+
+  // All available tags for the hint bar
+  const builtInTags = ['{{name}}', '{{full_name}}', '{{email}}']
+  const customTags = customFields.map(f => `{{${f.key}}}`)
+  const allTags = [...builtInTags, ...customTags]
 
   return (
     <div className="p-6 max-w-3xl mx-auto fade-in">
       <div className="flex items-center gap-3 mb-8">
-        <Link href="/projects" className="btn btn-sm">
+        <Link href={`/projects/${projectId}/leads`} className="btn btn-sm">
           <ArrowLeft className="w-3.5 h-3.5" />
         </Link>
-        <h1 className="text-xl font-semibold text-gray-900">New Project</h1>
+        <h1 className="text-xl font-semibold text-gray-900">Project Settings</h1>
       </div>
 
-      {/* Step indicator */}
-      <div className="flex items-center gap-0 mb-8">
-        {steps.map((s, i) => (
-          <div key={s} className="flex items-center flex-1 last:flex-none">
-            <button
-              onClick={() => i + 1 < step && setStep(i + 1)}
-              className={`flex items-center gap-2 text-xs font-medium ${
-                step === i + 1 ? 'text-brand-600' :
-                step > i + 1 ? 'text-gray-500 cursor-pointer hover:text-brand-600' : 'text-gray-300'
-              }`}
-            >
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold ${
-                step === i + 1 ? 'bg-brand-600 text-white' :
-                step > i + 1 ? 'bg-brand-100 text-brand-600' : 'bg-gray-100 text-gray-400'
-              }`}>
-                {i + 1}
-              </span>
-              <span className="hidden sm:block">{s}</span>
-            </button>
-            {i < steps.length - 1 && (
-              <div className={`flex-1 h-px mx-3 ${step > i + 1 ? 'bg-brand-200' : 'bg-gray-100'}`} />
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="card p-6">
-        {/* Step 1 */}
-        {step === 1 && (
+      <div className="space-y-6">
+        {/* Basic */}
+        <div className="card p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">Basic Info</h2>
           <div className="space-y-4">
-            <h2 className="text-base font-semibold text-gray-800 mb-5">Basic Information</h2>
             <div>
-              <label className="label">Project name *</label>
-              <input className="input" placeholder="e.g. Q2 SaaS Outreach" value={form.name}
-                onChange={e => set('name', e.target.value)} />
+              <label className="label">Project name</label>
+              <input className="input" value={form.name ?? ''} onChange={e => set('name', e.target.value)} />
             </div>
             <div>
-              <label className="label">Description (optional)</label>
-              <textarea className="input" rows={2} placeholder="What is this project for?"
-                value={form.description} onChange={e => set('description', e.target.value)} />
+              <label className="label">Description</label>
+              <textarea className="input" rows={2} value={form.description ?? ''} onChange={e => set('description', e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">From name</label>
-                <input className="input" placeholder="Ahmed Raza" value={form.from_name}
-                  onChange={e => set('from_name', e.target.value)} />
+                <input className="input" value={form.from_name ?? ''} onChange={e => set('from_name', e.target.value)} />
               </div>
               <div>
-                <label className="label">From email *</label>
-                <input type="email" className="input" placeholder="you@company.com" value={form.from_email}
-                  onChange={e => set('from_email', e.target.value)} />
+                <label className="label">From email</label>
+                <input type="email" className="input" value={form.from_email ?? ''} onChange={e => set('from_email', e.target.value)} />
               </div>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Step 2 */}
-        {step === 2 && (
+        {/* SMTP */}
+        <div className="card p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">SMTP Settings</h2>
           <div className="space-y-4">
-            <h2 className="text-base font-semibold text-gray-800 mb-5">SMTP & Email Content</h2>
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2">
-                <label className="label">SMTP host *</label>
-                <input className="input" placeholder="smtp.gmail.com" value={form.smtp_host}
-                  onChange={e => set('smtp_host', e.target.value)} />
+                <label className="label">SMTP host</label>
+                <input className="input" value={form.smtp_host ?? ''} onChange={e => set('smtp_host', e.target.value)} />
               </div>
               <div>
-                <label className="label">Port *</label>
-                <input type="number" className="input" value={form.smtp_port}
-                  onChange={e => set('smtp_port', parseInt(e.target.value))} />
+                <label className="label">Port</label>
+                <input type="number" className="input" value={form.smtp_port ?? 587} onChange={e => set('smtp_port', parseInt(e.target.value))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="label">SMTP username *</label>
-                <input className="input" placeholder="your@email.com" value={form.smtp_user}
-                  onChange={e => set('smtp_user', e.target.value)} />
+                <label className="label">SMTP user</label>
+                <input className="input" value={form.smtp_user ?? ''} onChange={e => set('smtp_user', e.target.value)} />
               </div>
               <div>
-                <label className="label">SMTP password *</label>
+                <label className="label">SMTP password</label>
                 <div className="relative">
                   <input type={showPass ? 'text' : 'password'} className="input pr-10"
-                    placeholder="App password" value={form.smtp_pass}
-                    onChange={e => set('smtp_pass', e.target.value)} />
+                    value={form.smtp_pass ?? ''} onChange={e => set('smtp_pass', e.target.value)} />
                   <button type="button" onClick={() => setShowPass(s => !s)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                     {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -169,177 +172,222 @@ export default function NewProjectPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <input type="checkbox" id="smtp_secure" checked={form.smtp_secure}
+              <input type="checkbox" id="smtp_secure" checked={form.smtp_secure ?? false}
                 onChange={e => set('smtp_secure', e.target.checked)} className="rounded" />
               <label htmlFor="smtp_secure" className="text-sm text-gray-600">Use SSL/TLS (port 465)</label>
             </div>
-            <hr className="border-gray-100" />
-            <div>
-              <label className="label">Email subject *</label>
-              <input className="input" placeholder="Use {{name}} for personalization" value={form.email_subject}
-                onChange={e => set('email_subject', e.target.value)} />
-            </div>
-            <div>
-              <label className="label">Email body * (HTML supported, use {'{{name}}'}, {'{{email}}'} etc.)</label>
-              <textarea className="input font-mono text-xs" rows={8}
-                placeholder={'<p>Hi {{name}},</p>\n<p>I wanted to reach out...</p>'}
-                value={form.email_body} onChange={e => set('email_body', e.target.value)} />
+          </div>
+        </div>
+
+        {/* Personalization Fields */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <Tag className="w-4 h-4 text-brand-500" />
+            <h2 className="text-sm font-semibold text-gray-700">Personalization Fields</h2>
+          </div>
+          <p className="text-xs text-gray-400 mb-4">
+            Add custom fields like <span className="font-mono bg-gray-100 px-1 rounded">clinic_name</span> or <span className="font-mono bg-gray-100 px-1 rounded">company</span>. Use them in your email subject/body with double curly braces. They also get imported from CSV automatically.
+          </p>
+
+          <div className="mb-4">
+            <p className="text-xs text-gray-400 mb-2">Built-in tags (always available):</p>
+            <div className="flex flex-wrap gap-1.5">
+              {builtInTags.map(tag => (
+                <span key={tag} className="font-mono text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-md border border-brand-100">
+                  {tag}
+                </span>
+              ))}
             </div>
           </div>
-        )}
 
-        {/* Step 3 */}
-        {step === 3 && (
+          {customFields.length > 0 && (
+            <div className="mb-4 space-y-2">
+              <p className="text-xs text-gray-400 mb-2">Your custom fields:</p>
+              {customFields.map(field => (
+                <div key={field.key} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-700 font-medium">{field.label}</span>
+                    <span className="font-mono text-xs bg-white text-brand-600 px-2 py-0.5 rounded border border-brand-100">
+                      {`{{${field.key}}}`}
+                    </span>
+                  </div>
+                  <button onClick={() => removeField(field.key)} className="text-gray-300 hover:text-red-400 transition-colors" title="Remove field">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <input
+                className="input"
+                placeholder="e.g. Clinic Name, Company, City..."
+                value={newFieldLabel}
+                onChange={e => { setNewFieldLabel(e.target.value); setFieldError('') }}
+                onKeyDown={e => e.key === 'Enter' && addField()}
+              />
+              {newFieldLabel && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Tag: <span className="font-mono text-brand-600">{`{{${labelToKey(newFieldLabel)}}}`}</span>
+                </p>
+              )}
+              {fieldError && <p className="text-xs text-red-500 mt-1">{fieldError}</p>}
+            </div>
+            <button onClick={addField} className="btn btn-primary btn-sm px-3 self-start">
+              <Plus className="w-4 h-4" /> Add
+            </button>
+          </div>
+        </div>
+
+        {/* Email content */}
+        <div className="card p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">Email Content</h2>
+          {allTags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-4 p-3 bg-gray-50 rounded-lg border border-gray-100">
+              <span className="text-xs text-gray-400 w-full mb-1">Click to copy tag:</span>
+              {allTags.map(tag => (
+                <button key={tag} onClick={() => navigator.clipboard.writeText(tag)} title="Click to copy"
+                  className="font-mono text-xs bg-white text-brand-600 px-2 py-0.5 rounded border border-brand-100 hover:bg-brand-50 transition-colors">
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="space-y-4">
-            <h2 className="text-base font-semibold text-gray-800 mb-5">Schedule & Sending Rules</h2>
+            <div>
+              <label className="label">Subject</label>
+              <input className="input" value={form.email_subject ?? ''} onChange={e => set('email_subject', e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Body (HTML supported)</label>
+              <textarea className="input font-mono text-xs" rows={8} value={form.email_body ?? ''} onChange={e => set('email_body', e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {/* Follow-ups */}
+        <div className="card p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">Follow-up Settings</h2>
+          <p className="text-xs text-gray-400 mb-5">Automatically send follow-up emails to leads who haven't replied.</p>
+
+          <div className="mb-5">
+            <label className="label">Number of follow-ups per lead (max 4)</label>
+            <div className="flex items-center gap-3">
+              <button type="button"
+                onClick={() => set('followup_count', Math.max(0, followupCount - 1))}
+                className="btn btn-sm w-8 h-8 p-0 justify-center">
+                <Minus className="w-3 h-3" />
+              </button>
+              <span className="text-lg font-semibold text-gray-800 w-6 text-center">{followupCount}</span>
+              <button type="button"
+                onClick={() => set('followup_count', Math.min(4, followupCount + 1))}
+                className="btn btn-sm w-8 h-8 p-0 justify-center">
+                <Plus className="w-3 h-3" />
+              </button>
+              <span className="text-sm text-gray-400">
+                {followupCount === 0 ? 'No follow-ups' : `${followupCount} follow-up${followupCount > 1 ? 's' : ''}`}
+              </span>
+            </div>
+          </div>
+
+          {Array.from({ length: followupCount }, (_, i) => i + 1).map(n => (
+            <div key={n} className="border border-gray-100 rounded-xl p-4 space-y-3 mb-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-700">Follow-up {n}</h3>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-400">Send after</label>
+                  <select className="input w-auto py-1 text-xs"
+                    value={(form as Record<string, unknown>)[`followup_day_${n}`] as number ?? 2}
+                    onChange={e => set(`followup_day_${n}`, parseInt(e.target.value))}>
+                    {FOLLOWUP_DAYS.map(d => (
+                      <option key={d} value={d}>{d} day{d > 1 ? 's' : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="label">Subject (leave blank to use original)</label>
+                <input className="input"
+                  placeholder={`Re: ${form.email_subject || 'original subject'}`}
+                  value={(form as Record<string, unknown>)[`followup_subject_${n}`] as string ?? ''}
+                  onChange={e => set(`followup_subject_${n}`, e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Body (leave blank to use original)</label>
+                <textarea className="input text-xs" rows={4}
+                  placeholder="Just following up on my previous email..."
+                  value={(form as Record<string, unknown>)[`followup_body_${n}`] as string ?? ''}
+                  onChange={e => set(`followup_body_${n}`, e.target.value)} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Schedule */}
+        <div className="card p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">Schedule & Sending</h2>
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Schedule type</label>
-                <select className="input" value={form.schedule_type}
-                  onChange={e => set('schedule_type', e.target.value)}>
+                <select className="input" value={form.schedule_type ?? 'daily'} onChange={e => set('schedule_type', e.target.value)}>
                   <option value="daily">Daily</option>
                   <option value="weekly">Weekly</option>
                   <option value="monthly">Monthly</option>
                 </select>
               </div>
               <div>
-                <label className="label">Send time (24h)</label>
-                <input type="time" className="input" value={form.schedule_time}
-                  onChange={e => set('schedule_time', e.target.value)} />
+                <label className="label">Send time</label>
+                <input type="time" className="input" value={form.schedule_time ?? '09:00'} onChange={e => set('schedule_time', e.target.value)} />
               </div>
             </div>
-            {form.schedule_type === 'weekly' && (
+            <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="label">Day of week</label>
-                <select className="input" value={form.schedule_day_of_week}
-                  onChange={e => set('schedule_day_of_week', parseInt(e.target.value))}>
-                  {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d, i) => (
-                    <option key={d} value={i}>{d}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {form.schedule_type === 'monthly' && (
-              <div>
-                <label className="label">Day of month</label>
-                <input type="number" min={1} max={28} className="input" value={form.schedule_day_of_month}
-                  onChange={e => set('schedule_day_of_month', parseInt(e.target.value))} />
-              </div>
-            )}
-            <hr className="border-gray-100" />
-            <div>
-              <label className="label">Emails per batch</label>
-              <select className="input" value={form.batch_size}
-                onChange={e => set('batch_size', parseInt(e.target.value))}>
-                {BATCH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="label">Minutes between batches</label>
-                <select className="input" value={form.batch_interval_minutes}
-                  onChange={e => set('batch_interval_minutes', parseInt(e.target.value))}>
-                  {INTERVAL_OPTIONS.map(m => <option key={m} value={m}>{m} {m === 1 ? 'minute' : 'minutes'}</option>)}
+                <label className="label">Emails per batch</label>
+                <select className="input" value={form.batch_size ?? 10} onChange={e => set('batch_size', parseInt(e.target.value))}>
+                  {BATCH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div>
-                <label className="label">Daily email limit (0 = unlimited)</label>
-                <input type="number" min={0} className="input" value={form.daily_limit}
-                  onChange={e => set('daily_limit', parseInt(e.target.value))} />
+                <label className="label">Interval (minutes)</label>
+                <input type="number" min={1} max={60} className="input" value={form.batch_interval_minutes ?? 5} onChange={e => set('batch_interval_minutes', parseInt(e.target.value))} />
+              </div>
+              <div>
+                <label className="label">Daily limit</label>
+                <input type="number" min={0} className="input" value={form.daily_limit ?? 50} onChange={e => set('daily_limit', parseInt(e.target.value))} />
               </div>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Step 4 */}
-        {step === 4 && (
-          <div className="space-y-4">
-            <h2 className="text-base font-semibold text-gray-800 mb-2">Follow-up Settings</h2>
-            <p className="text-xs text-gray-400 mb-5">Automatically send follow-up emails to leads who haven&apos;t replied.</p>
-
-            <div>
-              <label className="label">Number of follow-ups per lead (max 4)</label>
-              <div className="flex items-center gap-3">
-                <button type="button" onClick={() => set('followup_count', Math.max(0, form.followup_count - 1))}
-                  className="btn btn-sm w-8 h-8 p-0 justify-center">
-                  <Minus className="w-3 h-3" />
-                </button>
-                <span className="text-lg font-semibold text-gray-800 w-6 text-center">{form.followup_count}</span>
-                <button type="button" onClick={() => set('followup_count', Math.min(4, form.followup_count + 1))}
-                  className="btn btn-sm w-8 h-8 p-0 justify-center">
-                  <Plus className="w-3 h-3" />
-                </button>
-                <span className="text-sm text-gray-400">{form.followup_count === 0 ? 'No follow-ups' : `${form.followup_count} follow-up${form.followup_count > 1 ? 's' : ''}`}</span>
-              </div>
-            </div>
-
-            {Array.from({ length: form.followup_count }, (_, i) => i + 1).map(n => (
-              <div key={n} className="border border-gray-100 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-gray-700">Follow-up {n}</h3>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-gray-400">Send after</label>
-                    <select className="input w-auto py-1 text-xs"
-                      value={(form as Record<string, unknown>)[`followup_day_${n}`] as number}
-                      onChange={e => set(`followup_day_${n}`, parseInt(e.target.value))}>
-                      {FOLLOWUP_DAYS.map(d => <option key={d} value={d}>{d} day{d > 1 ? 's' : ''}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="label">Subject (leave blank to use original)</label>
-                  <input className="input" placeholder={`Re: ${form.email_subject || 'original subject'}`}
-                    value={(form as Record<string, unknown>)[`followup_subject_${n}`] as string}
-                    onChange={e => set(`followup_subject_${n}`, e.target.value)} />
-                </div>
-                <div>
-                  <label className="label">Body (leave blank to use original)</label>
-                  <textarea className="input text-xs" rows={3}
-                    placeholder="Just following up on my previous email..."
-                    value={(form as Record<string, unknown>)[`followup_body_${n}`] as string}
-                    onChange={e => set(`followup_body_${n}`, e.target.value)} />
-                </div>
-              </div>
+        {/* Status */}
+        <div className="card p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">Project Status</h2>
+          <div className="flex items-center gap-3">
+            {(['active', 'paused', 'stopped'] as const).map(s => (
+              <button key={s} onClick={() => set('status', s)}
+                className={`btn btn-sm capitalize ${form.status === s ? 'btn-primary' : ''}`}>
+                {s}
+              </button>
             ))}
           </div>
-        )}
+        </div>
 
-        {error && (
-          <div className="mt-4 px-3 py-2.5 bg-red-50 border border-red-100 rounded-lg text-sm text-red-600">{error}</div>
-        )}
+        {/* Actions */}
+        {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+        {saved && <p className="text-sm text-brand-600 bg-brand-50 px-3 py-2 rounded-lg">Settings saved!</p>}
 
-        {/* Navigation */}
-        <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
-          <button
-            onClick={() => setStep(s => Math.max(1, s - 1))}
-            disabled={step === 1}
-            className="btn disabled:opacity-30"
-          >
-            <ArrowLeft className="w-4 h-4" /> Back
+        <div className="flex items-center justify-between">
+          <button onClick={handleDelete} disabled={deleting} className="btn btn-danger btn-sm">
+            <Trash2 className="w-3.5 h-3.5" />
+            {deleting ? 'Deleting...' : 'Delete Project'}
           </button>
-
-          {step < 4 ? (
-            <button
-              onClick={() => {
-                if (step === 1 && (!form.name || !form.from_email)) {
-                  setError('Please fill project name and from email'); return
-                }
-                if (step === 2 && (!form.smtp_host || !form.smtp_user || !form.smtp_pass || !form.email_subject || !form.email_body)) {
-                  setError('Please fill all SMTP and email fields'); return
-                }
-                setError('')
-                setStep(s => s + 1)
-              }}
-              className="btn btn-primary"
-            >
-              Next →
-            </button>
-          ) : (
-            <button onClick={handleSubmit} disabled={loading} className="btn btn-primary">
-              {loading ? <Loader2 className="w-4 h-4 spin" /> : null}
-              Create Project
-            </button>
-          )}
+          <button onClick={handleSave} disabled={saving} className="btn btn-primary">
+            {saving && <Loader2 className="w-4 h-4 spin" />}
+            Save Changes
+          </button>
         </div>
       </div>
     </div>
