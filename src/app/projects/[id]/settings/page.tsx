@@ -74,16 +74,19 @@ export default function ProjectSettingsPage() {
   }
  
   const handleSave = async () => {
-    setSaving(true); setError(''); setSaved(false)
-    const res = await fetch(`/api/projects/${projectId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
-    if (!res.ok) { const d = await res.json(); setError(d.error) }
-    else { setSaved(true); setTimeout(() => setSaved(false), 3000) }
-    setSaving(false)
-  }
+  setSaving(true); setError(''); setSaved(false)
+
+  const { id, user_id, created_at, updated_at, total_leads, total_sent, ...projectData } = form as Record<string, unknown> & typeof form
+
+  const res = await fetch(`/api/projects/${projectId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(projectData),
+  })
+  if (!res.ok) { const d = await res.json(); setError(d.error) }
+  else { setSaved(true); setTimeout(() => setSaved(false), 3000) }
+  setSaving(false)
+}
  
   const handleDelete = async () => {
     if (!confirm('Delete this project and all its leads? This cannot be undone.')) return
