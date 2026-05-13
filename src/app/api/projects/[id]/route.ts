@@ -1,32 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
- 
-export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
- 
-  const { data, error } = await supabase
-    .from('projects')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
- 
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 })
-  return NextResponse.json(data)
-}
- 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
- 
+
   const body = await request.json()
- 
-  // Whitelist only valid project columns — never pass id, user_id, created_at, updated_at or unknown fields
+
   const allowed = [
     'name', 'description', 'from_email', 'from_name',
     'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure',
@@ -44,11 +23,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     'total_leads', 'total_sent',
     'custom_fields',
   ]
- 
+
   const update = Object.fromEntries(
     Object.entries(body).filter(([key]) => allowed.includes(key))
   )
- 
+
   const { data, error } = await supabase
     .from('projects')
     .update(update)
@@ -56,24 +35,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .eq('user_id', user.id)
     .select()
     .single()
- 
+
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data)
 }
- 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
- 
-  const { error } = await supabase
-    .from('projects')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user.id)
- 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ success: true })
-}
- 
